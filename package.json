@@ -1,0 +1,15 @@
+{
+  "name": "bluefin",
+  "version": "1.0.0",
+  "description": "The MacOS accessibility framework interface for the Albacore cross-platform screen reader.",
+  "main": "index.js",
+  "scripts": {
+    "install": "node-swift rebuild"
+  },
+  "author": "Alex Jurgensen",
+  "license": "AGPL-3.0",
+  "dependencies": {
+    "node-swift": "file:.."
+  },
+  "private": true
+}
