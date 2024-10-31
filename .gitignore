@@ -1,3 +1,9 @@
+#Swift
+.build
+.DS_STORE
+**/.DS_STORE
+Package.resolved
+
 # Logs
 logs
 *.log

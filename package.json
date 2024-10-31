@@ -1,15 +1,16 @@
 {
-  "name": "bluefin",
+  "name": "node-swift-example",
   "version": "1.0.0",
-  "description": "The MacOS accessibility framework interface for the Albacore cross-platform screen reader.",
+  "description": "Example node-swift package",
   "main": "index.js",
+  "type": "module",
   "scripts": {
     "install": "node-swift rebuild"
   },
-  "author": "Alex Jurgensen",
-  "license": "AGPL-3.0",
+  "author": "Kabir Oberai",
+  "license": "CC0-1.0",
   "dependencies": {
-    "node-swift": "file:.."
+    "node-swift": "git+https://github.com/kabiroberai/node-swift.git"
   },
   "private": true
 }
