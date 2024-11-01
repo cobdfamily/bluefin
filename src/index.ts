@@ -1,6 +1,6 @@
-export * from './Accessibility/index';
-export * from './Elements/index';
-export * from './Security/index';
-export * from "./System/index";
-export * from "./ScreenReader/index";
+export * as Accessibility from './Accessibility/index';
+export * as Elements from './Elements/index';
+export * as Security from './Security/index';
+export * as System from "./System/index";
+export * as ScreenReader from "./ScreenReader/index";
 
