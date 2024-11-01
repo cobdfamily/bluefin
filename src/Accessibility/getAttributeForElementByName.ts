@@ -1,4 +1,4 @@
-import swift from '../swift';
+import swift from '@cobd/taylor';
 import { getCamelCase } from './getCamelCase';
 import { getUpperCamelCase } from './getUpperCamelCase';
 

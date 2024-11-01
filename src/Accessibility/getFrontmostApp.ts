@@ -1,4 +1,4 @@
-import swift from '../swift';
+import swift from '@cobd/taylor';
 
 export const getFrontmostApp = () => {
 return ( swift.AXUIElementCreateApplication( swift.getIdOfFrontmostApp() ) );
