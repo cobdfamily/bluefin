@@ -7,3 +7,6 @@ export * from './getCamelCase';
 export * from './getFrontmostApp';
 export * from './getSystemApp';
 export * from './getUpperCamelCase';
+export * from './performActionForElement';
+export * from './setFocusedUIElement';
+
