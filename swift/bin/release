@@ -1,0 +1,13 @@
+#!/bin/bash
+
+# Compile for X86_64
+swift build --arch x86_64 -c release
+
+# Compile for ARM64
+swift build --arch arm64 -c release
+
+# Create universal binary
+lipo -create -output ../node/bin/bluetide .build/x86_64-apple-macosx/release/bluetide .build/arm64-apple-macosx/release/bluetide
+
+# Announce completion
+say -v "Alex" "Tada!"
