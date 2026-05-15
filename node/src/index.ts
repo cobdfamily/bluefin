@@ -1,3 +1,21 @@
+// @cobd/bluetide node side -- launches the bluetide
+// Swift binary (../bin/bluetide) as a child process
+// and re-emits its stdout messages as a typed
+// EventEmitter. Consumers don't care that there's a
+// Swift process behind the scenes; they subscribe to
+// the bluefin event surface like any JS object.
+//
+// .start()  spawns + connects to stdio
+// .end()    SIGTERMs the child, emits 'end'
+// 'event'   one fires per child-side notification
+//
+// Why spawn + pipe rather than a node-swift binding:
+// the Swift process needs to retain its own runloop
+// to receive macOS accessibility callbacks; bridging
+// that into Node's runloop via a native module is
+// fiddly. Child-process + JSON-line stdout is the
+// boring shape that just works.
+
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { EventEmitter } from 'events';
