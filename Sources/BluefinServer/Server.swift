@@ -14,21 +14,23 @@ actor StdoutWriter {
 
 final class BluefinServer {
     let client: ClientConnection
-    private let queue = DispatchQueue(label: "bluefin.stdio.reader")
 
     init() {
         self.client = ClientConnection(writer: StdoutWriter())
     }
 
     func start() {
-        Task { [client, queue] in
+        // One Task owns the lifetime: welcome first, then a
+        // serial loop of (read line / await dispatch / write).
+        // Awaiting each dispatch inline means stdin EOF never
+        // strands an in-flight response, and writes can't
+        // interleave from concurrent dispatches.
+        Task { [client] in
             await client.sendWelcome()
-            queue.async {
-                readStdinLines { line in
-                    client.handle(text: line)
-                }
-                exit(0)
+            for await line in stdinLines() {
+                await client.handle(text: line)
             }
+            exit(0)
         }
     }
 }
@@ -43,12 +45,10 @@ final class ClientConnection: @unchecked Sendable {
         self.writer = writer
     }
 
-    func handle(text: String) {
-        Task {
-            let response = await JsonRpcDispatcher(connection: self).dispatch(text: text)
-            if let response {
-                await send(response: response)
-            }
+    func handle(text: String) async {
+        let response = await JsonRpcDispatcher(connection: self).dispatch(text: text)
+        if let response {
+            await send(response: response)
         }
     }
 
@@ -92,25 +92,36 @@ final class ClientConnection: @unchecked Sendable {
     }
 }
 
-private func readStdinLines(_ receive: (String) -> Void) {
-    var buffer = Data()
-    while true {
-        let chunk = FileHandle.standardInput.availableData
-        if chunk.isEmpty {
-            if !buffer.isEmpty, let line = String(data: buffer, encoding: .utf8) {
-                receive(line)
+// Async sequence of LF-delimited UTF-8 lines from
+// stdin. Yields on a background thread (availableData
+// blocks) but the consumer awaits on the Task that
+// owns the loop, so the dispatch is structured.
+private func stdinLines() -> AsyncStream<String> {
+    AsyncStream { continuation in
+        let thread = Thread {
+            var buffer = Data()
+            while true {
+                let chunk = FileHandle.standardInput.availableData
+                if chunk.isEmpty {
+                    if !buffer.isEmpty,
+                       let line = String(data: buffer, encoding: .utf8) {
+                        continuation.yield(line)
+                    }
+                    continuation.finish()
+                    return
+                }
+                buffer.append(chunk)
+                while let newline = buffer.firstIndex(of: 0x0a) {
+                    let lineData = buffer[..<newline]
+                    buffer.removeSubrange(...newline)
+                    guard !lineData.isEmpty else { continue }
+                    if let line = String(data: lineData, encoding: .utf8) {
+                        continuation.yield(line)
+                    }
+                }
             }
-            return
         }
-        buffer.append(chunk)
-        while let newline = buffer.firstIndex(of: 0x0a) {
-            let lineData = buffer[..<newline]
-            buffer.removeSubrange(...newline)
-            guard !lineData.isEmpty else { continue }
-            if let line = String(data: lineData, encoding: .utf8) {
-                receive(line)
-            }
-        }
+        thread.start()
     }
 }
 
