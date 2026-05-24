@@ -204,6 +204,86 @@ result: { "handle": "node:sibling" }
 
 `direction` is `"next"` or `"previous"`.
 
+### node.getAttributeNames
+
+```json
+params: { "handle": "node:abcd" }
+result: { "names": ["AXTitle", "AXRole", "AXChildren"] }
+```
+
+Enumerate the raw AX attribute names supported by an
+element. Returned names map 1:1 to what
+`AXUIElementCopyAttributeNames` reports; sandcastle
+translates to canonical names.
+
+### security.getKeychainItem
+
+```json
+params: { "service": "ca.cobd.example", "account": "alex" }
+result: { "value": "secret-string-or-null" }
+```
+
+Generic-password lookup. Returns `null` when no item
+matches; other failures surface as a JSON-RPC error.
+
+### security.setKeychainItem
+
+```json
+params: {
+  "service": "ca.cobd.example",
+  "account": "alex",
+  "value": "secret-string"
+}
+result: { "ok": true }
+```
+
+Inserts if absent, updates if present. UTF-8 encoded
+on write.
+
+### system.isAccessibilityEnabled
+
+```json
+params: {}
+result: { "enabled": true }
+```
+
+Runtime check for the macOS Accessibility permission.
+Different from the startup pre-flight log (which writes
+to stderr): callers can re-poll this method after a
+TCC change and expect a fresh answer.
+
+### system.getBatteryStatus
+
+```json
+params: {}
+result: {
+  "percentage": 87.5,
+  "isCharging": false,
+  "isPresent": true
+}
+```
+
+`percentage` is `null` on hosts without a battery
+(Mac mini, Mac Pro, Mac Studio); `isPresent` is
+`false` in the same case.
+
+### system.runAppleScript
+
+```json
+params: { "source": "return 1 + 1" }
+result: { "result": "2", "isError": false }
+```
+
+Errors are surfaced in-band, not thrown:
+
+```json
+result: {
+  "result": "",
+  "isError": true,
+  "errorMessage": "syntax error: ..."
+}
+```
+
 ### subscribe
 
 Subscribe to raw AX notification names. Sandcastle filters

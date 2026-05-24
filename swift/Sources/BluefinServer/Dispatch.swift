@@ -30,18 +30,105 @@ struct JsonRpcDispatcher {
 
     private func route(_ request: JsonRpcRequest) async throws -> JSONValue {
         switch request.method {
-        case "tree.getRoot":
-            // The "root" exposed to clients is the frontmost
-            // application's AX element. AXUIElementCreateSystemWide
-            // works in theory but in practice many parent processes
-            // (eg. Terminal) inherit only per-application AX
-            // permission, never system-wide. Bluetide takes the
-            // same per-app approach for the same reason.
-            guard let frontmost = NSWorkspace.shared.frontmostApplication else {
-                return .object(["handle": .null])
+        case "node.getActions":
+            let params = try objectParams(request.params)
+            let element = try await element(from: params)
+            return .object(["actions": .array(try copyActionNames(element).map { .string($0) })])
+        case "node.getAncestors":
+            let params = try objectParams(request.params)
+            var current = try await element(from: params)
+            var ancestors: [JSONValue] = []
+            while let parent = try? (AXBindings.copyAttributeValue(current, attribute: "AXParent") as! AXUIElement) {
+                ancestors.append(.string(await connection.registry.handle(for: parent)))
+                current = parent
             }
-            let app = AXUIElementCreateApplication(frontmost.processIdentifier)
-            return .object(["handle": .string(await connection.registry.handle(for: app))])
+            return .object(["ancestors": .array(ancestors)])
+        case "node.getAttribute":
+            let params = try objectParams(request.params)
+            let element = try await element(from: params)
+            let name = try string(params["name"])
+            return .object(["value": try await AttributeReader(registry: connection.registry).attribute(name, of: element)])
+        case "node.getAttributeNames":
+            let params = try objectParams(request.params)
+            let element = try await element(from: params)
+            return .object(["names": .array(try AXBindings.copyAttributeNames(element).map { .string($0) })])
+        case "node.getAttributes":
+            let params = try objectParams(request.params)
+            let element = try await element(from: params)
+            let names = try array(params["names"]).map { try string($0) }
+            let reader = AttributeReader(registry: connection.registry)
+            var attributes: [String: JSONValue] = [:]
+            for name in names {
+                attributes[name] = try await reader.attribute(name, of: element)
+            }
+            return .object(["attributes": .object(attributes)])
+        case "node.getChildren":
+            let params = try objectParams(request.params)
+            let element = try await element(from: params)
+            let children = (try? AXBindings.copyAttributeValue(element, attribute: "AXChildren") as? [AXUIElement]) ?? []
+            let offset = Int(number(params["offset"]) ?? 0)
+            let limit = params["limit"].flatMap(number).map(Int.init) ?? children.count
+            let slice = children.dropFirst(max(0, offset)).prefix(max(0, limit))
+            let handles = await slice.asyncMap { await connection.registry.handle(for: $0) }
+            return .object(["children": .array(handles.map { .string($0) }), "total": .number(Double(children.count))])
+        case "node.getParent":
+            let params = try objectParams(request.params)
+            let element = try await element(from: params)
+            let parent = try? (AXBindings.copyAttributeValue(element, attribute: "AXParent") as! AXUIElement)
+            if let parent {
+                return .object(["handle": .string(await connection.registry.handle(for: parent))])
+            }
+            return .object(["handle": .null])
+        case "node.getSibling":
+            return try await sibling(request.params)
+        case "node.invokeAction":
+            let params = try objectParams(request.params)
+            let element = try await element(from: params)
+            try AXBindings.performAction(element, action: try string(params["action"]))
+            return .object(["ok": .bool(true)])
+        case "node.setAttribute":
+            let params = try objectParams(request.params)
+            let element = try await element(from: params)
+            let name = try string(params["name"])
+            try AXBindings.setAttributeValue(
+                element,
+                attribute: name,
+                value: try nativeValue(params["value"] ?? .null, attribute: name))
+            return .object(["ok": .bool(true)])
+        case "security.getKeychainItem":
+            let params = try objectParams(request.params)
+            let value = try KeychainBindings.getGenericPassword(
+                service: try string(params["service"]),
+                account: try string(params["account"]))
+            return .object(["value": value.map(JSONValue.string) ?? .null])
+        case "security.setKeychainItem":
+            let params = try objectParams(request.params)
+            try KeychainBindings.setGenericPassword(
+                service: try string(params["service"]),
+                account: try string(params["account"]),
+                value: try string(params["value"]))
+            return .object(["ok": .bool(true)])
+        case "system.getBatteryStatus":
+            let status = PowerBindings.batteryStatus()
+            return .object([
+                "percentage": status.percentage.map { .number($0) } ?? .null,
+                "isCharging": .bool(status.isCharging),
+                "isPresent": .bool(status.isPresent)
+            ])
+        case "system.isAccessibilityEnabled":
+            return .object(["enabled": .bool(AXBindings.canQueryAccessibility(
+                pid: ProcessInfo.processInfo.processIdentifier))])
+        case "system.runAppleScript":
+            let params = try objectParams(request.params)
+            let outcome = AppleScriptBindings.run(source: try string(params["source"]))
+            var result: [String: JSONValue] = [
+                "result": .string(outcome.result),
+                "isError": .bool(outcome.isError)
+            ]
+            if let message = outcome.errorMessage {
+                result["errorMessage"] = .string(message)
+            }
+            return .object(result)
         case "tree.getFocused":
             // Query the frontmost app's focused element. Per-app
             // AX queries succeed where system-wide fails when this
@@ -61,67 +148,18 @@ struct JsonRpcDispatcher {
                 return .object(["handle": .string(await connection.registry.handle(for: focused))])
             }
             return .object(["handle": .null])
-        case "node.getAttribute":
-            let params = try objectParams(request.params)
-            let element = try await element(from: params)
-            let name = try string(params["name"])
-            return .object(["value": try await AttributeReader(registry: connection.registry).attribute(name, of: element)])
-        case "node.getAttributes":
-            let params = try objectParams(request.params)
-            let element = try await element(from: params)
-            let names = try array(params["names"]).map { try string($0) }
-            let reader = AttributeReader(registry: connection.registry)
-            var attributes: [String: JSONValue] = [:]
-            for name in names {
-                attributes[name] = try await reader.attribute(name, of: element)
+        case "tree.getRoot":
+            // The "root" exposed to clients is the frontmost
+            // application's AX element. AXUIElementCreateSystemWide
+            // works in theory but in practice many parent processes
+            // (eg. Terminal) inherit only per-application AX
+            // permission, never system-wide. Bluetide takes the
+            // same per-app approach for the same reason.
+            guard let frontmost = NSWorkspace.shared.frontmostApplication else {
+                return .object(["handle": .null])
             }
-            return .object(["attributes": .object(attributes)])
-        case "node.getActions":
-            let params = try objectParams(request.params)
-            let element = try await element(from: params)
-            return .object(["actions": .array(try copyActionNames(element).map { .string($0) })])
-        case "node.getChildren":
-            let params = try objectParams(request.params)
-            let element = try await element(from: params)
-            let children = (try? AXBindings.copyAttributeValue(element, attribute: "AXChildren") as? [AXUIElement]) ?? []
-            let offset = Int(number(params["offset"]) ?? 0)
-            let limit = params["limit"].flatMap(number).map(Int.init) ?? children.count
-            let slice = children.dropFirst(max(0, offset)).prefix(max(0, limit))
-            let handles = await slice.asyncMap { await connection.registry.handle(for: $0) }
-            return .object(["children": .array(handles.map { .string($0) }), "total": .number(Double(children.count))])
-        case "node.getParent":
-            let params = try objectParams(request.params)
-            let element = try await element(from: params)
-            let parent = try? (AXBindings.copyAttributeValue(element, attribute: "AXParent") as! AXUIElement)
-            if let parent {
-                return .object(["handle": .string(await connection.registry.handle(for: parent))])
-            }
-            return .object(["handle": .null])
-        case "node.getAncestors":
-            let params = try objectParams(request.params)
-            var current = try await element(from: params)
-            var ancestors: [JSONValue] = []
-            while let parent = try? (AXBindings.copyAttributeValue(current, attribute: "AXParent") as! AXUIElement) {
-                ancestors.append(.string(await connection.registry.handle(for: parent)))
-                current = parent
-            }
-            return .object(["ancestors": .array(ancestors)])
-        case "node.getSibling":
-            return try await sibling(request.params)
-        case "node.invokeAction":
-            let params = try objectParams(request.params)
-            let element = try await element(from: params)
-            try AXBindings.performAction(element, action: try string(params["action"]))
-            return .object(["ok": .bool(true)])
-        case "node.setAttribute":
-            let params = try objectParams(request.params)
-            let element = try await element(from: params)
-            let name = try string(params["name"])
-            try AXBindings.setAttributeValue(
-                element,
-                attribute: name,
-                value: try nativeValue(params["value"] ?? .null, attribute: name))
-            return .object(["ok": .bool(true)])
+            let app = AXUIElementCreateApplication(frontmost.processIdentifier)
+            return .object(["handle": .string(await connection.registry.handle(for: app))])
         case "subscribe":
             let params = try objectParams(request.params)
             let events = try array(params["events"]).map { try string($0) }
