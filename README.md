@@ -39,25 +39,27 @@ tmp/        Unported TypeScript from the original
 - Sandcastle (the launcher that spawns this binary):
   <https://github.com/cobdfamily/albacore/tree/main/packages/sandcastle>
 
-## Planned protocol additions
+## Recently-added protocol methods
 
-Documented but not yet implemented in `swift/`. Each
-gets a method when its consumer lands:
+The following methods round out the protocol surface
+inherited from the bluefin TS legacy and landed
+during the consolidation:
 
-- `system.isAccessibilityEnabled` -- runtime check
-  for AX permission. Replaces the startup-only
-  stderr log.
+- `system.isAccessibilityEnabled` -- runtime AX
+  permission check.
 - `node.getAttributeNames` -- enumerate the raw AX
   attribute names supported by an element.
 - `security.getKeychainItem` /
   `security.setKeychainItem` -- macOS keychain
   read/write.
-- `system.getBatteryStatus` -- battery
-  percentage + charging state.
-- `system.runAppleScript` -- AppleScript runner
-  without shelling out to `osascript`.
+- `system.getBatteryStatus` -- battery percentage,
+  charging state, and presence.
+- `system.runAppleScript` -- NSAppleScript runner;
+  errors surface in-band.
 
-The TS originals for each of these live under `tmp/`.
+See `swift/PROTOCOL.md` for the full method shapes.
+The TS originals that motivated each of these live
+under `tmp/`.
 
 ## License
 
