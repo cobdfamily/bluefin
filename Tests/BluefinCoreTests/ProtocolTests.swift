@@ -1,38 +1,22 @@
 import XCTest
 @testable import BluefinCore
 
-final class ProtocolAndNormalisationTests: XCTestCase {
-    func testEveryCanonicalRoleHasInboundMapping() {
-        let mapped = Set(RoleMap.axToCanonical.values)
-        XCTAssertTrue(mapped.isSuperset(of: Set(CanonicalRole.allCases)))
-    }
-
-    func testEveryCanonicalStateHasPlatformEntry() {
-        for state in CanonicalState.allCases {
-            XCTAssertFalse(StateMap.platformEntries[state, default: []].isEmpty, "\(state.rawValue) has no platform entry")
-        }
-    }
-
-    func testEveryCanonicalActionHasInboundMapping() {
-        let mapped = Set(ActionMap.axToCanonical.values)
-        XCTAssertTrue(mapped.isSuperset(of: Set(CanonicalAction.allCases)))
-    }
-
+final class ProtocolTests: XCTestCase {
     func testJsonRpcRequestShapeRoundTrips() throws {
         let json = """
-        {"jsonrpc":"2.0","id":1,"method":"node.getAttribute","params":{"handle":"node:abcd","name":"role"}}
+        {"jsonrpc":"2.0","id":1,"method":"node.getAttribute","params":{"handle":"node:abcd","name":"AXRole"}}
         """
         let request = try JSONDecoder().decode(JsonRpcRequest.self, from: Data(json.utf8))
         XCTAssertEqual(request.jsonrpc, "2.0")
         XCTAssertEqual(request.method, "node.getAttribute")
         XCTAssertEqual(request.id, .number(1))
-        XCTAssertEqual(request.params, .object(["handle": .string("node:abcd"), "name": .string("role")]))
+        XCTAssertEqual(request.params, .object(["handle": .string("node:abcd"), "name": .string("AXRole")]))
 
         let encoded = try JSONEncoder().encode(request)
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
         XCTAssertEqual(object["jsonrpc"] as? String, "2.0")
         XCTAssertEqual(object["method"] as? String, "node.getAttribute")
-        XCTAssertEqual((object["params"] as? [String: Any])?["name"] as? String, "role")
+        XCTAssertEqual((object["params"] as? [String: Any])?["name"] as? String, "AXRole")
     }
 
     func testJsonRpcResponseShapeRoundTrips() throws {
@@ -65,7 +49,7 @@ final class ProtocolAndNormalisationTests: XCTestCase {
             "capabilities": .object([
                 "platforms": .array([.string("macOS")]),
                 "writableAttributes": .bool(true),
-                "supportsScreenshot": .bool(false)
+                "transport": .string("stdio")
             ])
         ]))
         let encoded = try JSONEncoder().encode(notification)
@@ -78,14 +62,14 @@ final class ProtocolAndNormalisationTests: XCTestCase {
         let snapshot = NodeSnapshot(
             handle: "node:abcd",
             stableId: "window-app-Mail#main",
-            attributes: ["name": .string("Compose"), "role": .string("button"), "states": .array([.string("focusable")])],
+            attributes: ["AXTitle": .string("Compose"), "AXRole": .string("AXButton")],
             children: []
         )
         let encoded = try JSONEncoder().encode(snapshot)
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
         XCTAssertEqual(object["handle"] as? String, "node:abcd")
         XCTAssertEqual(object["stableId"] as? String, "window-app-Mail#main")
-        XCTAssertEqual((object["attributes"] as? [String: Any])?["role"] as? String, "button")
+        XCTAssertEqual((object["attributes"] as? [String: Any])?["AXRole"] as? String, "AXButton")
 
         let decoded = try JSONDecoder().decode(NodeSnapshot.self, from: encoded)
         XCTAssertEqual(decoded, snapshot)

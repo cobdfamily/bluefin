@@ -1,6 +1,10 @@
 @preconcurrency import ApplicationServices
 import Foundation
 
+// AXEvent.name intentionally carries the raw AX notification
+// string. rawNotification is kept as a duplicate for source
+// compatibility with existing callers during the transport
+// refactor; both fields contain the same value.
 public struct AXEvent {
     public var name: String
     public var element: AXUIElement
@@ -14,19 +18,17 @@ public struct AXEvent {
 }
 
 public final class AXEventObserver {
-    public static let notificationToEvent: [String: String] = [
-        "AXFocusedUIElementChanged": "focusChanged",
-        "AXFocusedWindowChanged": "focusChanged",
-        "AXValueChanged": "nodeChanged",
-        "AXTitleChanged": "nodeChanged",
-        "AXSelectedChildrenChanged": "nodeChanged",
-        "AXSelectedRowsChanged": "nodeChanged",
-        "AXSelectedTextChanged": "nodeChanged",
-        "AXCreated": "nodeAdded",
-        "AXUIElementDestroyed": "nodeRemoved"
+    public static let relevantNotifications: [String] = [
+        "AXFocusedUIElementChanged",
+        "AXFocusedWindowChanged",
+        "AXValueChanged",
+        "AXTitleChanged",
+        "AXSelectedChildrenChanged",
+        "AXSelectedRowsChanged",
+        "AXSelectedTextChanged",
+        "AXCreated",
+        "AXUIElementDestroyed"
     ]
-
-    public static let relevantNotifications: [String] = Array(notificationToEvent.keys)
 
     private let observer: AXObserver
     private let continuation: AsyncStream<AXEvent>.Continuation
@@ -69,9 +71,6 @@ public final class AXEventObserver {
     }
 
     private func receive(element: AXUIElement, notification: String) {
-        guard let name = Self.notificationToEvent[notification] else {
-            return
-        }
-        continuation.yield(AXEvent(name: name, element: element, rawNotification: notification))
+        continuation.yield(AXEvent(name: notification, element: element, rawNotification: notification))
     }
 }

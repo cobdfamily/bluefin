@@ -76,6 +76,10 @@ struct JsonRpcDispatcher {
                 attributes[name] = try await reader.attribute(name, of: element)
             }
             return .object(["attributes": .object(attributes)])
+        case "node.getActions":
+            let params = try objectParams(request.params)
+            let element = try await element(from: params)
+            return .object(["actions": .array(try copyActionNames(element).map { .string($0) })])
         case "node.getChildren":
             let params = try objectParams(request.params)
             let element = try await element(from: params)
@@ -107,21 +111,16 @@ struct JsonRpcDispatcher {
         case "node.invokeAction":
             let params = try objectParams(request.params)
             let element = try await element(from: params)
-            let action = try string(params["action"])
-            guard let canonical = CanonicalAction(rawValue: action),
-                  let axAction = ActionMap.canonicalToAX[canonical]?.first else {
-                throw BluefinError.actionNotSupported
-            }
-            try AXBindings.performAction(element, action: axAction)
+            try AXBindings.performAction(element, action: try string(params["action"]))
             return .object(["ok": .bool(true)])
         case "node.setAttribute":
             let params = try objectParams(request.params)
             let element = try await element(from: params)
             let name = try string(params["name"])
-            guard let axName = AttributeMap.canonicalToAX[name]?.first, name == "value" || name == "selectedRange" else {
-                throw BluefinError.attributeNotWritable
-            }
-            try AXBindings.setAttributeValue(element, attribute: axName, value: nativeValue(params["value"] ?? .null))
+            try AXBindings.setAttributeValue(
+                element,
+                attribute: name,
+                value: try nativeValue(params["value"] ?? .null, attribute: name))
             return .object(["ok": .bool(true)])
         case "subscribe":
             let params = try objectParams(request.params)
@@ -135,7 +134,7 @@ struct JsonRpcDispatcher {
             let params = try objectParams(request.params)
             let element = try await element(from: params)
             let depth = Int(number(params["depth"]) ?? 1)
-            let attributes = (try? array(params["attributes"]).map { try string($0) }) ?? ["name", "role", "states"]
+            let attributes = (try? array(params["attributes"]).map { try string($0) }) ?? ["AXTitle", "AXRole"]
             return .object(["node": try await snapshot(element: element, depth: depth, attributes: attributes)])
         default:
             throw BluefinError.methodNotFound
@@ -203,103 +202,17 @@ struct AttributeReader {
     let registry: NodeRegistry
 
     func attribute(_ name: String, of element: AXUIElement) async throws -> JSONValue {
-        switch name {
-        case "name":
-            return stringAttribute(element, ["AXTitle", "AXDescription"])
-        case "role":
-            let role = try? AXBindings.copyAttributeValue(element, attribute: "AXRole") as? String
-            return .string(RoleMap.canonicalRole(for: role).rawValue)
-        case "value":
-            return jsonValue(try? AXBindings.copyAttributeValue(element, attribute: "AXValue")) ?? .null
-        case "description":
-            return stringAttribute(element, ["AXHelp", "AXDescription"])
-        case "placeholder":
-            return stringAttribute(element, ["AXPlaceholderValue"])
-        case "states":
-            return .array(readStates(element).map { .string($0.rawValue) })
-        case "actions":
-            var values: [JSONValue] = []
-            if let names = try? AXUIElementCopyActionNamesCompat(element) {
-                values = names.compactMap(ActionMap.canonicalAction).map { .string($0.rawValue) }
-            }
-            return .array(values)
-        case "bounds":
-            return bounds(element)
-        case "level":
-            return jsonValue(try? AXBindings.copyAttributeValue(element, attribute: "AXDisclosureLevel")) ?? .null
-        case "valueRange":
-            let min = jsonValue(try? AXBindings.copyAttributeValue(element, attribute: "AXMinValue")) ?? .null
-            let max = jsonValue(try? AXBindings.copyAttributeValue(element, attribute: "AXMaxValue")) ?? .null
-            return .object(["min": min, "max": max])
-        case "selectedRange":
-            return selectedRange(element)
-        case "childCount":
-            let children = (try? AXBindings.copyAttributeValue(element, attribute: "AXChildren") as? [AXUIElement]) ?? []
-            return .number(Double(children.count))
-        case "platformExtra":
-            return platformExtra(element)
-        default:
-            throw BluefinError.invalidParams
-        }
-    }
-
-    private func readStates(_ element: AXUIElement) -> [CanonicalState] {
-        var attributes: [String: Any] = [:]
-        for name in ["AXFocused", "AXFocusable", "AXSelected", "AXSelectable", "AXExpanded", "AXValue", "AXPressed", "AXEnabled", "AXRequired", "AXElementBusy", "AXModal", "AXHidden", "AXOffscreen", "AXNumberOfCharacters", "AXAllowsMultipleSelection", "AXHasPopup"] {
-            if let value = try? AXBindings.copyAttributeValue(element, attribute: name) {
-                attributes[name] = value
-            }
-        }
-        return StateMap.states(from: attributes)
-    }
-
-    private func stringAttribute(_ element: AXUIElement, _ names: [String]) -> JSONValue {
-        for name in names {
-            if let value = try? AXBindings.copyAttributeValue(element, attribute: name) as? String, !value.isEmpty {
-                return .string(value)
-            }
-        }
-        return .null
-    }
-
-    private func bounds(_ element: AXUIElement) -> JSONValue {
-        guard let positionValue = try? (AXBindings.copyAttributeValue(element, attribute: "AXPosition") as! AXValue),
-              let sizeValue = try? (AXBindings.copyAttributeValue(element, attribute: "AXSize") as! AXValue) else {
+        var raw: CFTypeRef?
+        let error = AXUIElementCopyAttributeValue(element, name as CFString, &raw)
+        if error == .attributeUnsupported || error == .noValue {
             return .null
         }
-        var point = CGPoint.zero
-        var size = CGSize.zero
-        AXValueGetValue(positionValue, .cgPoint, &point)
-        AXValueGetValue(sizeValue, .cgSize, &size)
-        return .object([
-            "x": .number(point.x),
-            "y": .number(point.y),
-            "width": .number(size.width),
-            "height": .number(size.height)
-        ])
-    }
-
-    private func selectedRange(_ element: AXUIElement) -> JSONValue {
-        guard let rangeValue = try? (AXBindings.copyAttributeValue(element, attribute: "AXSelectedTextRange") as! AXValue) else {
-            return .null
-        }
-        var range = CFRange()
-        AXValueGetValue(rangeValue, .cfRange, &range)
-        return .object(["start": .number(Double(range.location)), "length": .number(Double(range.length))])
-    }
-
-    private func platformExtra(_ element: AXUIElement) -> JSONValue {
-        var object: [String: JSONValue] = [:]
-        for name in ["AXRole", "AXSubrole", "AXRoleDescription", "AXIdentifier"] {
-            if let value = jsonValue(try? AXBindings.copyAttributeValue(element, attribute: name)) {
-                object[name] = value
-            }
-        }
-        return .object(object)
+        try AXBindings.throwIfNeeded(error)
+        return await jsonValue(raw, registry: registry) ?? .null
     }
 }
 
-func AXUIElementCopyActionNamesCompat(_ element: AXUIElement) throws -> [String] {
+func copyActionNames(_ element: AXUIElement) throws -> [String] {
     var names: CFArray?
     let error = AXUIElementCopyActionNames(element, &names)
     try AXBindings.throwIfNeeded(error)
@@ -326,6 +239,36 @@ func number(_ value: JSONValue?) -> Double? {
     return number
 }
 
+func nativeValue(_ value: JSONValue, attribute: String) throws -> Any {
+    switch attribute {
+    case "AXPosition":
+        let object = try objectParams(value)
+        var point = CGPoint(x: number(object["x"]) ?? 0, y: number(object["y"]) ?? 0)
+        guard let wrapped = AXValueCreate(.cgPoint, &point) else {
+            throw BluefinError.invalidParams
+        }
+        return wrapped
+    case "AXSize":
+        let object = try objectParams(value)
+        var size = CGSize(width: number(object["width"]) ?? 0, height: number(object["height"]) ?? 0)
+        guard let wrapped = AXValueCreate(.cgSize, &size) else {
+            throw BluefinError.invalidParams
+        }
+        return wrapped
+    case "AXSelectedTextRange":
+        let object = try objectParams(value)
+        var range = CFRange(
+            location: Int(number(object["start"]) ?? 0),
+            length: Int(number(object["length"]) ?? 0))
+        guard let wrapped = AXValueCreate(.cfRange, &range) else {
+            throw BluefinError.invalidParams
+        }
+        return wrapped
+    default:
+        return nativeValue(value)
+    }
+}
+
 func nativeValue(_ value: JSONValue) -> Any {
     switch value {
     case .null:
@@ -343,14 +286,64 @@ func nativeValue(_ value: JSONValue) -> Any {
     }
 }
 
-func jsonValue(_ value: Any?) -> JSONValue? {
+func jsonValue(_ value: Any?, registry: NodeRegistry) async -> JSONValue? {
     guard let value else { return nil }
+    if isAXUIElement(value) {
+        return .string(await registry.handle(for: value as! AXUIElement))
+    }
+    if CFGetTypeID(value as CFTypeRef) == AXValueGetTypeID() {
+        return axValue(value as! AXValue)
+    }
     if let value = value as? String { return .string(value) }
     if let value = value as? Bool { return .bool(value) }
     if let value = value as? NSNumber { return .number(value.doubleValue) }
-    if let values = value as? [Any] { return .array(values.map { jsonValue($0) ?? .null }) }
-    if let object = value as? [String: Any] { return .object(object.mapValues { jsonValue($0) ?? .null }) }
+    if let values = value as? [Any] {
+        var converted: [JSONValue] = []
+        for item in values {
+            converted.append(await jsonValue(item, registry: registry) ?? .null)
+        }
+        return .array(converted)
+    }
+    if let object = value as? [String: Any] {
+        var converted: [String: JSONValue] = [:]
+        for (key, item) in object {
+            converted[key] = await jsonValue(item, registry: registry) ?? .null
+        }
+        return .object(converted)
+    }
     return .string(String(describing: value))
+}
+
+func axValue(_ value: AXValue) -> JSONValue {
+    switch AXValueGetType(value) {
+    case .cgPoint:
+        var point = CGPoint.zero
+        guard AXValueGetValue(value, .cgPoint, &point) else { return .null }
+        return .object(["x": .number(point.x), "y": .number(point.y)])
+    case .cgSize:
+        var size = CGSize.zero
+        guard AXValueGetValue(value, .cgSize, &size) else { return .null }
+        return .object(["width": .number(size.width), "height": .number(size.height)])
+    case .cfRange:
+        var range = CFRange()
+        guard AXValueGetValue(value, .cfRange, &range) else { return .null }
+        return .object(["start": .number(Double(range.location)), "length": .number(Double(range.length))])
+    case .cgRect:
+        var rect = CGRect.zero
+        guard AXValueGetValue(value, .cgRect, &rect) else { return .null }
+        return .object([
+            "x": .number(rect.origin.x),
+            "y": .number(rect.origin.y),
+            "width": .number(rect.size.width),
+            "height": .number(rect.size.height)
+        ])
+    default:
+        return .string(String(describing: value))
+    }
+}
+
+func isAXUIElement(_ value: Any) -> Bool {
+    CFGetTypeID(value as CFTypeRef) == AXUIElementGetTypeID()
 }
 
 extension Sequence {
