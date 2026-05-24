@@ -1,0 +1,25 @@
+# Swift build output
+.build/
+.swiftpm/
+*.xcodeproj/
+Packages/
+xcuserdata/
+
+# Generated docs
+docs/
+
+# macOS noise
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editor / IDE
+.idea/
+.vscode/*
+!.vscode/settings.json
+*.sublime-project
+*.sublime-workspace
+
+# Local scratch
+scratch/
+tmp/
