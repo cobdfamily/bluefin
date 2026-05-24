@@ -44,6 +44,24 @@ public enum AXBindings {
         return AXIsProcessTrustedWithOptions(options)
     }
 
+    /// Whether real AX queries succeed against running
+    /// applications. Distinct from `isProcessTrusted` --
+    /// that one frequently inherits the parent process's
+    /// trust (Terminal etc.) and returns true even when
+    /// per-app queries would also fail. This one tries an
+    /// actual call and checks for `kAXErrorAPIDisabled`.
+    ///
+    /// Pass any running PID (usually loginwindow's, since
+    /// it always exists); we only care about the error
+    /// code, not the returned value.
+    public static func canQueryAccessibility(pid: pid_t) -> Bool {
+        let element = AXUIElementCreateApplication(pid)
+        var value: CFTypeRef?
+        let error = AXUIElementCopyAttributeValue(
+            element, "AXRole" as CFString, &value)
+        return error != .apiDisabled
+    }
+
     public static func throwIfNeeded(_ error: AXError) throws {
         guard error != .success else { return }
         throw bluefinError(for: error)

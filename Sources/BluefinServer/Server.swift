@@ -160,7 +160,17 @@ enum Main {
         // pure check, no side effect, so the server can
         // run headless in CI without UI popping up.
         let prompt = ProcessInfo.processInfo.environment["BLUEFIN_PROMPT_AX"] == "1"
-        let trusted = AXBindings.isProcessTrusted(prompt: prompt)
+        // Surface the macOS prompt if requested -- but the
+        // return value is unreliable. AXIsProcessTrustedWith-
+        // Options often inherits trust from the parent
+        // process (eg. Terminal) and reports true even when
+        // real AX calls return kAXErrorAPIDisabled. The real
+        // check is canQueryAccessibility, which makes an
+        // actual per-app call against this process and
+        // inspects the error code.
+        _ = AXBindings.isProcessTrusted(prompt: prompt)
+        let trusted = AXBindings.canQueryAccessibility(
+            pid: ProcessInfo.processInfo.processIdentifier)
         if trusted {
             FileHandle.standardError.write(Data(
                 "bluefin-server: Accessibility permission GRANTED. AX tree is queryable.\n".utf8))

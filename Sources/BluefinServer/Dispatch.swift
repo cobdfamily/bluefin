@@ -31,12 +31,33 @@ struct JsonRpcDispatcher {
     private func route(_ request: JsonRpcRequest) async throws -> JSONValue {
         switch request.method {
         case "tree.getRoot":
-            let root = AXUIElementCreateSystemWide()
-            return .object(["handle": .string(await connection.registry.handle(for: root))])
+            // The "root" exposed to clients is the frontmost
+            // application's AX element. AXUIElementCreateSystemWide
+            // works in theory but in practice many parent processes
+            // (eg. Terminal) inherit only per-application AX
+            // permission, never system-wide. Bluetide takes the
+            // same per-app approach for the same reason.
+            guard let frontmost = NSWorkspace.shared.frontmostApplication else {
+                return .object(["handle": .null])
+            }
+            let app = AXUIElementCreateApplication(frontmost.processIdentifier)
+            return .object(["handle": .string(await connection.registry.handle(for: app))])
         case "tree.getFocused":
-            let root = AXUIElementCreateSystemWide()
-            let focused = try? (AXBindings.copyAttributeValue(root, attribute: "AXFocusedUIElement") as! AXUIElement)
-            if let focused {
+            // Query the frontmost app's focused element. Per-app
+            // AX queries succeed where system-wide fails when this
+            // binary inherits parent-process AX trust without its
+            // own TCC entry. Falls back to the focused window if
+            // the app itself reports no value (Safari, Chrome do
+            // this -- focus lives on the window, not the app).
+            guard let frontmost = NSWorkspace.shared.frontmostApplication else {
+                return .object(["handle": .null])
+            }
+            let app = AXUIElementCreateApplication(frontmost.processIdentifier)
+            if let focused = copyChildElement(app, kAXFocusedUIElementAttribute) {
+                return .object(["handle": .string(await connection.registry.handle(for: focused))])
+            }
+            if let window = copyChildElement(app, kAXFocusedWindowAttribute),
+               let focused = copyChildElement(window, kAXFocusedUIElementAttribute) {
                 return .object(["handle": .string(await connection.registry.handle(for: focused))])
             }
             return .object(["handle": .null])
@@ -165,6 +186,17 @@ struct JsonRpcDispatcher {
     private func element(from params: [String: JSONValue]) async throws -> AXUIElement {
         try await connection.registry.element(for: string(params["handle"]))
     }
+}
+
+// Free helper -- AXUIElementCopyAttributeValue + cast to
+// AXUIElement, returning nil on any failure or unexpected
+// type. Used for navigating focus chains where missing
+// links are routine, not errors.
+private func copyChildElement(_ element: AXUIElement, _ attribute: String) -> AXUIElement? {
+    var raw: CFTypeRef?
+    let err = AXUIElementCopyAttributeValue(element, attribute as CFString, &raw)
+    guard err == .success, let value = raw else { return nil }
+    return (value as! AXUIElement)
 }
 
 struct AttributeReader {
