@@ -26,6 +26,24 @@ public enum AXBindings {
         try throwIfNeeded(error)
     }
 
+    /// Whether this process holds the macOS Accessibility
+    /// permission. Without it, every AX call returns
+    /// `kAXErrorAPIDisabled` (silently nil on the server's
+    /// dispatched calls) and the server appears to work
+    /// but returns empty trees.
+    ///
+    /// - Parameter prompt: When `true`, macOS opens the
+    ///   "would you like to allow ... to control this
+    ///   computer" prompt on the first call IF the
+    ///   process is not yet trusted. Subsequent calls
+    ///   become silent. When `false`, this is a pure
+    ///   check with no side effect.
+    public static func isProcessTrusted(prompt: Bool = false) -> Bool {
+        let key = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
+        let options = [key: prompt] as CFDictionary
+        return AXIsProcessTrustedWithOptions(options)
+    }
+
     public static func throwIfNeeded(_ error: AXError) throws {
         guard error != .success else { return }
         throw bluefinError(for: error)

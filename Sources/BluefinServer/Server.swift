@@ -150,8 +150,37 @@ final class ClientConnection {
 enum Main {
     static func main() throws {
         let port = UInt16(ProcessInfo.processInfo.environment["BLUEFIN_PORT"] ?? "") ?? 8765
+        // Pre-flight: announce whether we have the macOS
+        // Accessibility permission. Without it every AX
+        // call silently returns nothing, the server looks
+        // healthy, and the operator wastes time chasing a
+        // "why are the trees empty" red herring. Setting
+        // BLUEFIN_PROMPT_AX=1 makes macOS open the
+        // permission prompt on first run; default is a
+        // pure check, no side effect, so the server can
+        // run headless in CI without UI popping up.
+        let prompt = ProcessInfo.processInfo.environment["BLUEFIN_PROMPT_AX"] == "1"
+        let trusted = AXBindings.isProcessTrusted(prompt: prompt)
+        if trusted {
+            FileHandle.standardError.write(Data(
+                "bluefin-server: Accessibility permission GRANTED. AX tree is queryable.\n".utf8))
+        } else {
+            FileHandle.standardError.write(Data("""
+                bluefin-server: WARNING -- Accessibility permission NOT GRANTED.
+                bluefin-server:   AX calls will silently return empty results.
+                bluefin-server:   Grant via: System Settings -> Privacy & Security
+                bluefin-server:              -> Accessibility -> add the binary at:
+                bluefin-server:              \(Bundle.main.bundleURL.path)
+                bluefin-server:   Or relaunch with BLUEFIN_PROMPT_AX=1 to surface the
+                bluefin-server:   macOS permission prompt.
+                bluefin-server:   See DEVELOPING.md for details.
+
+                """.utf8))
+        }
         let server = try BluefinServer(port: port)
         server.start()
+        FileHandle.standardError.write(Data(
+            "bluefin-server: listening on ws://127.0.0.1:\(port)\n".utf8))
         dispatchMain()
     }
 }
