@@ -12,7 +12,7 @@ final class BluefinServer {
         let parameters = NWParameters(tls: nil, tcp: NWProtocolTCP.Options())
         parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: port)!)
         parameters.defaultProtocolStack.applicationProtocols.insert(websocket, at: 0)
-        listener = try NWListener(using: parameters, on: NWEndpoint.Port(rawValue: port)!)
+        listener = try NWListener(using: parameters)
     }
 
     func start() {
