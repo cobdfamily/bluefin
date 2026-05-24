@@ -19,17 +19,14 @@ Outputs land in `.build/`. The executable is
 swift run bluefin-server
 ```
 
-By default the server binds to
-`ws://127.0.0.1:8765`. Override with:
+The server uses stdio. The parent process writes
+LF-delimited JSON-RPC requests to stdin and reads
+LF-delimited responses / notifications from
+stdout. Logs go to stderr.
 
 ```sh
-swift run bluefin-server --port 9000
-swift run bluefin-server --listen 0.0.0.0
+printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"tree.getRoot"}' | swift run bluefin-server
 ```
-
-The second form makes the server reachable on
-your LAN; only do that behind a vetted tunnel +
-TLS. v0.1 has no built-in auth.
 
 ## Accessibility permission
 
@@ -73,10 +70,8 @@ swift test
 ```
 
 Unit tests live under `Tests/BluefinCoreTests/`.
-They cover the normalisation tables (every
-canonical role / state / action has at least one
-inbound mapping) and JSON-RPC encoding (the wire
-shape exactly matches `PROTOCOL.md`).
+They cover JSON-RPC encoding and protocol wire
+shapes pinned by `PROTOCOL.md`.
 
 There are no integration tests in the Swift
 suite -- AX calls require a logged-in user
@@ -87,18 +82,17 @@ manually against a real desktop.
 
 ## Manual smoke test
 
-With the server running on 8765:
+Send one JSON-RPC request line on stdin:
 
 ```sh
-# Open a WebSocket and ask for the tree root.
-npx -y wscat -c ws://127.0.0.1:8765 <<'EOF'
-{"jsonrpc":"2.0","id":1,"method":"tree.getRoot"}
-EOF
+printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"tree.getRoot"}' | swift run bluefin-server
 ```
 
 You should see the `welcome` notification first
-(server pushes it on connect), then a JSON-RPC
-response with `{ "handle": "node:..." }`.
+(server writes it on startup), then a JSON-RPC
+response with `{ "handle": "node:..." }` on
+stdout. Accessibility pre-flight messages appear
+on stderr.
 
 ## Releasing
 
@@ -109,14 +103,13 @@ up, this section gets a tagged-release path.
 ## Hacking on the protocol
 
 `PROTOCOL.md` is the contract. If you need to
-add a method / event / canonical name:
+add a method or event:
 
 1. Edit `PROTOCOL.md` first. Open a PR that's
    spec-only and ask for review.
 2. Once the spec settles, implement in
    `Sources/`. The order is usually:
-   protocol types -> normalisation tables ->
-   AX bindings -> dispatch.
+   protocol types -> AX bindings -> dispatch.
 3. Add a test under `Tests/BluefinCoreTests/`
    that pins the encoding.
 4. Update `bluefin/` (the TypeScript client)

@@ -9,20 +9,17 @@ in UTC.
 
 ### Added
 - Protocol v0.1 draft (`PROTOCOL.md`). JSON-RPC
-  over WebSocket; normalised role / state /
-  action / attribute taxonomies; cache contract;
-  error code table. The shared contract for
-  every Tuna server (bluefin-swift on macOS,
-  yellowfin on Linux, blackfin on Windows).
+  over stdio; raw AX role / action / attribute /
+  notification names; cache contract; error code
+  table.
 - Swift Package skeleton: `BluefinCore`
-  library (protocol types + AX bindings +
-  normalisation + node registry) + `BluefinServer`
-  executable (WebSocket listener + JSON-RPC
-  dispatch). Swift-tools-version 5.9, macOS 13+,
-  zero third-party Swift dependencies.
+  library (protocol types + AX bindings + node
+  registry) + `BluefinServer` executable (stdio
+  JSON-RPC dispatch). Swift-tools-version 5.9,
+  macOS 13+, zero third-party Swift dependencies.
 - Scaffold docs: README, DEVELOPING (AX
   permission setup), GRATITUDE (Apple AX +
-  Network.framework + sibling projects),
+  sibling projects),
   COMMENTS (fleet-wide comment standard).
 - Implementation is in progress in the
   initial-release branch / main; first tagged

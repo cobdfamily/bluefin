@@ -1,8 +1,8 @@
 # Gratitude
 
-bluefin-swift sits on Apple's accessibility +
-networking stack. The framework is small because
-those foundations are deep. With gratitude to:
+bluefin-swift sits on Apple's accessibility
+stack. The framework is small because those
+foundations are deep. With gratitude to:
 
 ## Apple's accessibility team
 
@@ -12,13 +12,6 @@ engineering on AXUIElement, AXObserver, and the
 attribute / action vocabulary make a project like
 this possible at all. Particular thanks for the
 public C API surface in ApplicationServices.
-
-## Network.framework
-
-WebSocket support via `NWListener` + `NWConnection`
-ships in the OS. That's the only reason bluefin-
-swift can be "zero third-party Swift deps" without
-hand-rolling a WebSocket implementation.
 
 ## bluetide
 
