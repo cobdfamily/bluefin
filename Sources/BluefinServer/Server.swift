@@ -5,6 +5,14 @@ import Network
 final class BluefinServer {
     private let listener: NWListener
     private let queue = DispatchQueue(label: "bluefin.server")
+    // Retains every live ClientConnection. Without this
+    // the connection is deallocated the moment
+    // newConnectionHandler returns -- the [weak self] in
+    // stateUpdateHandler fires with nil and the welcome
+    // notification never goes out. Keyed by ObjectIdentifier
+    // so a connection can pull itself out on close.
+    private var clients: [ObjectIdentifier: ClientConnection] = [:]
+    private let clientsLock = NSLock()
 
     init(port: UInt16 = 8765) throws {
         let websocket = NWProtocolWebSocket.Options()
@@ -16,11 +24,26 @@ final class BluefinServer {
     }
 
     func start() {
-        listener.newConnectionHandler = { connection in
+        listener.newConnectionHandler = { [weak self] connection in
+            guard let self else { return }
             let client = ClientConnection(connection: connection)
+            self.retain(client)
+            client.onClose = { [weak self] in self?.release(client) }
             client.start()
         }
         listener.start(queue: queue)
+    }
+
+    private func retain(_ client: ClientConnection) {
+        clientsLock.lock()
+        clients[ObjectIdentifier(client)] = client
+        clientsLock.unlock()
+    }
+
+    private func release(_ client: ClientConnection) {
+        clientsLock.lock()
+        clients.removeValue(forKey: ObjectIdentifier(client))
+        clientsLock.unlock()
     }
 }
 
@@ -29,6 +52,11 @@ final class ClientConnection {
     let registry = NodeRegistry()
     private let queue = DispatchQueue(label: "bluefin.connection")
     private var subscriptions: [String: Set<String>] = [:]
+    // Server sets this so the connection can ask to be
+    // released from the retain map when its underlying
+    // socket closes or fails. Nil if the connection is
+    // running standalone (eg. unit tests).
+    var onClose: (() -> Void)?
 
     init(connection: NWConnection) {
         self.connection = connection
@@ -37,9 +65,18 @@ final class ClientConnection {
     func start() {
         connection.stateUpdateHandler = { [weak self] state in
             guard let self else { return }
-            if case .ready = state {
+            switch state {
+            case .ready:
                 self.sendWelcome()
                 self.receiveNext()
+            case .failed, .cancelled:
+                // Drop ourselves from the server's map.
+                // After this the only references should be
+                // the in-flight closures, which release on
+                // exit.
+                self.onClose?()
+            default:
+                break
             }
         }
         connection.start(queue: queue)
